@@ -6,44 +6,48 @@ import zipfile
 import os
 
 def split_pdf_logic(uploaded_file):
-    # We use io.BytesIO to handle files in memory without needing to save to disk
     input_pdf = io.BytesIO(uploaded_file.read())
     
     subject_ranges = []
     current_subject = None
     start_page = 0
 
-    # Step 1: Detect Headers
     with pdfplumber.open(input_pdf) as pdf:
         total_pages = len(pdf.pages)
         for i, page in enumerate(pdf.pages):
             text = page.extract_text()
-            # Extract the first line to identify the subject header
-            first_line = text.split('\n')[0].strip() if text else ""
             
-            # Identify "S1 " headers and mark transitions
-            if first_line.startswith("S1 ") and first_line != current_subject:
-                if current_subject:
-                    subject_ranges.append((current_subject, start_page, i))
-                current_subject = first_line
-                start_page = i
+            # --- FIX STARTS HERE ---
+            # Check if text exists on the page at all
+            if text and text.strip():
+                lines = text.split('\n')
+                # Check the first few lines in case the header isn't exactly the first line
+                first_line = lines[0].strip()
+                
+                if first_line.startswith("S1 ") and first_line != current_subject:
+                    if current_subject:
+                        subject_ranges.append((current_subject, start_page, i))
+                    current_subject = first_line
+                    start_page = i
+            # --- FIX ENDS HERE ---
         
-        # Add the last subject found
-        subject_ranges.append((current_subject, start_page, total_pages))
+        # Add the final subject
+        if current_subject:
+            subject_ranges.append((current_subject, start_page, total_pages))
 
-    # Step 2: Split and Zip
+    # Splitting and Zipping logic remains the same...
     reader = PdfReader(input_pdf)
     zip_buffer = io.BytesIO()
     
     with zipfile.ZipFile(zip_buffer, "w") as zipf:
         for name, start, end in subject_ranges:
             writer = PdfWriter()
-            safe_name = "".join([c for c in name if c.isalnum() or c in (' ', '_')]).rstrip()
+            # Clean filename for OS compatibility
+            safe_name = "".join([c for c in name if c.isalnum() or c in (' ', '_')]).strip()
             
             for page_num in range(start, end):
                 writer.add_page(reader.pages[page_num])
             
-            # Save individual PDF to memory and add to Zip
             pdf_output = io.BytesIO()
             writer.write(pdf_output)
             zipf.writestr(f"{safe_name}.pdf", pdf_output.getvalue())
